@@ -77,6 +77,7 @@ a.tt{color:var(--accent);text-decoration:none}a.tt:hover{text-decoration:underli
   <div class="toptabs">
     <button class="ttab" data-tab="summaries">Cluster Summaries</button>
     <button class="ttab" data-tab="graph">Network / cluster map</button>
+    <button class="ttab" data-tab="people">Authors &amp; Journals</button>
   </div>
   <div class="count" id="reccount"></div>
   <button class="pdfbtn" id="pdfbtn">⬇ Save as PDF</button>
@@ -137,7 +138,7 @@ function filtersBlock(pfx,f){
     <label>Author contains</label><input type="text" id="${pfx}_author" value="${esc(f.author)}">
     <label>Medical field</label>${checklist(pfx+'_field',FIELDS,f.field)}
     <label>Study design</label>${checklist(pfx+'_design',DESIGNS,f.design)}
-    <label>Research question</label>${checklist(pfx+'_theme',THEMES,f.theme)}
+    <label>Research theme</label>${checklist(pfx+'_theme',THEMES,f.theme)}
     <button class="btn ghost block" id="${pfx}_reset">Reset filters</button>
   </div>`;
 }
@@ -145,7 +146,7 @@ function wireFilters(pfx,f,cb){
   const g=id=>document.getElementById(pfx+'_'+id);
   ['ymin','ymax','mincit','journal','author'].forEach(k=>{const el=g(k);if(el)el.oninput=()=>{f[k]=el.value;cb();};});
   ['field','design','theme'].forEach(k=>{const el=g(k);if(el)el.onchange=()=>{f[k]=[...el.querySelectorAll('input:checked')].map(x=>x.value);cb();};});
-  const r=g('reset');if(r)r.onclick=()=>{Object.assign(f,emptyF());renderSidebar();(topTab==='graph'?buildGraph:renderMain)();};
+  const r=g('reset');if(r)r.onclick=()=>{Object.assign(f,emptyF());state.page={};renderSidebar();(topTab==='graph'?buildGraph:renderMain)();};
 }
 
 // ---------- charts / tables ----------
@@ -161,13 +162,13 @@ function sortableTable(viewId,cols,rows){
   const pg=state.page[viewId]||0,per=50,pages=Math.max(1,Math.ceil(rows.length/per)),slice=rows.slice(pg*per,pg*per+per);
   const head=cols.map(c=>`<th class="sortable ${c.num?'num':''}" data-col="${c.k}">${esc(c.h)}${s.col===c.k?(s.dir<0?' ▼':' ▲'):''}</th>`).join('');
   const body=slice.map(r=>`<tr>`+cols.map(c=>`<td class="${c.num?'num':''}">${c.render?c.render(r):esc(r[c.k])}</td>`).join('')+`</tr>`).join('');
-  const html=`<div class="tablewrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
+  const html=`<div id="st_${viewId}"><div class="tablewrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>
     <div class="pager"><button class="btn ghost" data-pg="prev" ${pg<=0?'disabled':''}>Prev</button>
     <span>Page ${pg+1} / ${pages} — ${fmt(rows.length)} rows</span>
-    <button class="btn ghost" data-pg="next" ${pg>=pages-1?'disabled':''}>Next</button></div>`;
+    <button class="btn ghost" data-pg="next" ${pg>=pages-1?'disabled':''}>Next</button></div></div>`;
   setTimeout(()=>{
-    document.querySelectorAll('#'+viewId+' th.sortable').forEach(th=>th.onclick=()=>{const c=th.dataset.col;if(s.col===c)s.dir*=-1;else{s.col=c;s.dir=-1;}state.page[viewId]=0;renderMain();});
-    document.querySelectorAll('#'+viewId+' [data-pg]').forEach(b=>b.onclick=()=>{state.page[viewId]=pg+(b.dataset.pg==='next'?1:-1);renderMain();});
+    document.querySelectorAll('#st_'+viewId+' th.sortable').forEach(th=>th.onclick=()=>{const c=th.dataset.col;if(s.col===c)s.dir*=-1;else{s.col=c;s.dir=-1;}state.page[viewId]=0;renderMain();});
+    document.querySelectorAll('#st_'+viewId+' [data-pg]').forEach(b=>b.onclick=()=>{state.page[viewId]=pg+(b.dataset.pg==='next'?1:-1);renderMain();});
   },0);
   return html;
 }
@@ -187,12 +188,12 @@ const VIEWS=[
  {id:'cited',name:'Most-cited articles',render:rows=>{
    const cols=[{k:'rank',h:'#',num:1},{k:'author',h:'Author'},{k:'year',h:'Year',num:1},{k:'journal',h:'Journal'},
      {k:'citations',h:'Citations',num:1},{k:'cited_by_within',h:'Cited (in corpus)',num:1},
-     {k:'field',h:'Field'},{k:'design',h:'Design'},{k:'theme',h:'Research question'},
+     {k:'field',h:'Field'},{k:'design',h:'Design'},{k:'theme',h:'Research theme'},
      {k:'title',h:'Title',render:r=>r.doi?`<a class="tt" href="https://doi.org/${esc(r.doi)}" target="_blank" rel="noopener">${esc(r.title)}</a>`:esc(r.title)}];
    return sortableTable('cited',cols,rows);}},
  {id:'design',name:'Clusters by study design',render:rows=>groupView('design',rows,'Study design')},
  {id:'field',name:'Clusters by medical field',render:rows=>groupView('field',rows,'Medical field')},
- {id:'theme',name:'Clusters by research question',render:rows=>groupView('theme',rows,'Research question')},
+ {id:'theme',name:'Clusters by research theme',render:rows=>groupView('theme',rows,'Research theme')},
  {id:'authors',name:'Top authors',render:rows=>aggView('authors',rows,'author','Author')},
  {id:'journals',name:'Top journals',render:rows=>aggView('journals',rows,'journal','Journal')},
  {id:'export',name:'Export CSV',render:rows=>exportView(rows)},
@@ -209,7 +210,7 @@ function aggView(vid,rows,key,label){
     <div class="card"><h3>All ${label.toLowerCase()}s (sortable)</h3>${sortableTable(vid,cols,g)}</div>`;}
 
 // ---------- CSV export (Cluster Summaries) ----------
-const ALLCOLS=[['rank','#'],['author','First author'],['year','Year'],['journal','Journal'],['title','Title'],['doi','DOI'],['pmid','PMID'],['citations','Citations (global)'],['citation_source','Citation source'],['cited_by_within','Cited by (within corpus)'],['cites_within','Cites (within corpus)'],['coupling_degree','Coupling degree'],['cites_per_year','Cites/yr'],['rcr','RCR'],['field','Medical field'],['design','Study design'],['theme','Research question'],['cluster','Citation cluster'],['record_source','Record source']];
+const ALLCOLS=[['rank','#'],['author','First author'],['year','Year'],['journal','Journal'],['title','Title'],['doi','DOI'],['pmid','PMID'],['citations','Citations (global)'],['citation_source','Citation source'],['cited_by_within','Cited by (within corpus)'],['cites_within','Cites (within corpus)'],['coupling_degree','Coupling degree'],['cites_per_year','Cites/yr'],['rcr','RCR'],['field','Medical field'],['design','Study design'],['theme','Research theme'],['cluster','Citation cluster'],['record_source','Record source']];
 function csvCell(v){v=(v==null?'':String(v));return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
 function exportView(rows){
   if(!state.exportCols)state.exportCols=ALLCOLS.map(c=>c[0]);
@@ -286,14 +287,14 @@ function drawNet(){
     +'<div class="li muted">'+(netState.mode==='citation'?'('+b.nlinks+' citation links; ':'(')+'black ring = top-20 cited; node size = citations)</div>';
   const tip=document.getElementById('nettip');
   box.querySelectorAll('circle').forEach(ci=>{ci.addEventListener('mousemove',ev=>{const n=nodes[+ci.dataset.i],r=box.getBoundingClientRect();
-    tip.innerHTML='<b>'+esc((n.d.author||'')+' '+(n.d.year||''))+'</b><br>'+esc(n.d.journal||'')+'<br>'+fmt(n.d.citations)+' citations · '+esc(n.d.field)+'<br>'+esc(n.d.theme);
-    tip.style.left=(ev.clientX-r.left+12)+'px';tip.style.top=(ev.clientY-r.top+12)+'px';tip.style.opacity=1;});
+    tip.innerHTML='<b>'+esc(n.d.author||'')+'</b><br>'+esc(n.d.journal||'')+'<br>'+fmt(n.d.citations)+' citations'+'<br>Field: '+esc(n.d.field||'')+'<br>Design: '+esc(n.d.design||'')+'<br>Theme: '+esc(n.d.theme||'');
+    tip.style.opacity=1;var x=ev.clientX-r.left,y=ev.clientY-r.top,tw=tip.offsetWidth,th=tip.offsetHeight,pad=14;var lx=(x+pad+tw>r.width)?(x-pad-tw):(x+pad),ty=(y+pad+th>r.height)?(y-pad-th):(y+pad);lx=Math.max(4,Math.min(lx,r.width-tw-4));ty=Math.max(4,Math.min(ty,r.height-th-4));tip.style.left=lx+'px';tip.style.top=ty+'px';});
     ci.addEventListener('mouseleave',()=>{tip.style.opacity=0;});});}
 function graphControlsBlock(){
   const opt=(v,l,cur)=>`<option value="${esc(v)}"${v===cur?' selected':''}>${l}</option>`;
   return `<h2>Graph controls</h2><div class="filters">
-    <label>Cluster / group by</label><select id="g_mode">${opt('field','Medical field',netState.mode)}${opt('theme','Research question',netState.mode)}${opt('design','Study design',netState.mode)}${opt('citation','Citation network (A→B)',netState.mode)}</select>
-    <label>Colour by</label><select id="g_color">${opt('auto','Cluster / group',netState.colorBy)}${opt('field','Medical field',netState.colorBy)}${opt('theme','Research question',netState.colorBy)}${opt('design','Study design',netState.colorBy)}</select>
+    <label>Cluster / group by</label><select id="g_mode">${opt('field','Medical field',netState.mode)}${opt('theme','Research theme',netState.mode)}${opt('design','Study design',netState.mode)}${opt('citation','Citation network (A→B)',netState.mode)}</select>
+    <label>Colour by</label><select id="g_color">${opt('auto','Cluster / group',netState.colorBy)}${opt('field','Medical field',netState.colorBy)}${opt('theme','Research theme',netState.colorBy)}${opt('design','Study design',netState.colorBy)}</select>
     <label>Max nodes (top-cited)</label><input type="number" id="g_max" value="${netState.maxNodes}">
     <label>Citation edges file (optional)</label><input type="file" id="g_edges" accept=".csv">
     <button class="btn block" id="g_build">Rebuild graph</button>
@@ -325,7 +326,115 @@ function downloadGraphCSV(){const b=netState.built;if(!b||!b.nodes)return;
 function downloadGraphSVG(){const svg=document.querySelector('#netgraph svg');if(!svg)return;
   dl(new Blob(['<?xml version="1.0" encoding="UTF-8"?>\n'+new XMLSerializer().serializeToString(svg)],{type:'image/svg+xml'}),'network_graph.svg');}
 
-// ---------- shell: two independent top-level sections ----------
+
+// ================= AUTHORS & JOURNALS (influence) =================
+// Aggregation mirrors agg_influence() in 03_citation_network.R exactly, so with
+// no filters applied these tables reproduce author_influence.csv and
+// journal_influence.csv row for row. Five metrics:
+//   n_publications, total_global_citations, total_within_citations,
+//   h_index (over global citations), citations_per_publication.
+// h_index_within is shown alongside because global and within-corpus influence
+// answer different questions and the gap between them is informative.
+const pf=emptyF();                       // Authors & Journals filters (independent)
+const peopleState={entity:'authors',minPubs:1,rankBy:'total_global_citations'};
+
+function hIndex(xs){const a=xs.filter(v=>v!=null&&!isNaN(v)).sort((x,y)=>y-x);
+  let h=0;for(let i=0;i<a.length;i++){if(a[i]>=i+1)h=i+1;else break;}return h;}
+function hasAuthorLists(){return DATA.some(d=>Array.isArray(d.author_ids)&&d.author_ids.length);}
+
+// One row per (entity, article); an author is never counted twice for one paper.
+function aggInfluence(rows,keyFn){
+  const m={};
+  rows.forEach(d=>{
+    const pairs=keyFn(d);if(!pairs||!pairs.length)return;
+    const seen=new Set();
+    pairs.forEach(([id,name])=>{
+      if(!id||seen.has(id))return;seen.add(id);
+      const e=m[id]||(m[id]={id,names:{},gc:[],wc:[],n:0});
+      e.names[name]=(e.names[name]||0)+1;
+      e.n++;e.gc.push(d.citations||0);e.wc.push(d.cited_by_within||0);
+    });
+  });
+  return Object.values(m).map(e=>{
+    const tg=e.gc.reduce((s,x)=>s+x,0);
+    return {name:Object.keys(e.names).sort((a,b)=>e.names[b]-e.names[a])[0],
+            n_publications:e.n,total_global_citations:tg,
+            total_within_citations:e.wc.reduce((s,x)=>s+x,0),
+            h_index:hIndex(e.gc),h_index_within:hIndex(e.wc),
+            citations_per_publication:Math.round(tg/e.n*100)/100};
+  });
+}
+const authorKey=d=>(Array.isArray(d.author_ids)&&d.author_ids.length)
+  ? d.author_ids.map((id,i)=>[id,(d.author_names&&d.author_names[i])||id])
+  : (d.author?[['name:'+String(d.author).toLowerCase(),d.author]]:[]);
+const journalKey=d=>{const j=(d.journal||'').trim();
+  return j?[[j.toLowerCase().replace(/\s+/g,' ').replace(/\.$/,''),j]]:[];};
+
+function peopleControls(){
+  const opt=(v,l,cur)=>`<option value="${esc(v)}"${v===cur?' selected':''}>${l}</option>`;
+  return `<h2>Ranking</h2><div class="filters">
+    <label>Show</label><select id="p_entity">${opt('authors','Authors',peopleState.entity)}${opt('journals','Journals',peopleState.entity)}</select>
+    <label>Rank by</label><select id="p_rank">
+      ${opt('total_global_citations','Total global citations',peopleState.rankBy)}
+      ${opt('total_within_citations','Total within-corpus citations',peopleState.rankBy)}
+      ${opt('h_index','h-index',peopleState.rankBy)}
+      ${opt('n_publications','Publications',peopleState.rankBy)}
+      ${opt('citations_per_publication','Citations per publication',peopleState.rankBy)}</select>
+    <label>Minimum publications</label><input type="number" id="p_minpub" min="1" value="${peopleState.minPubs}">
+    <button class="btn ghost block" id="p_dl">⬇ Download table (CSV)</button>
+  </div>`;}
+function wirePeopleControls(){const g=id=>document.getElementById(id);
+  g('p_entity').onchange=()=>{peopleState.entity=g('p_entity').value;state.page={};renderSidebar();renderMain();};
+  g('p_rank').onchange=()=>{peopleState.rankBy=g('p_rank').value;state.page={};renderMain();};
+  g('p_minpub').oninput=()=>{peopleState.minPubs=Math.max(1,+g('p_minpub').value||1);state.page={};renderMain();};
+  g('p_dl').onclick=()=>{const t=peopleTable();
+    downloadCSV(t,['name','n_publications','total_global_citations','total_within_citations',
+      'h_index','h_index_within','citations_per_publication'],
+      peopleState.entity==='authors'?'author_influence_filtered.csv':'journal_influence_filtered.csv');};}
+
+function peopleTable(){
+  const rows=filterRows(pf);
+  const isA=peopleState.entity==='authors';
+  let t=aggInfluence(rows,isA?authorKey:journalKey).filter(r=>r.n_publications>=peopleState.minPubs);
+  const k=peopleState.rankBy;
+  return t.sort((a,b)=>(b[k]-a[k])||(b.total_global_citations-a.total_global_citations));}
+
+function peopleMain(){
+  const rows=filterRows(pf);
+  const isA=peopleState.entity==='authors';
+  const label=isA?'author':'journal';
+  const t=peopleTable();
+  const k=peopleState.rankBy;
+  const RANKLAB={total_global_citations:'total global citations',total_within_citations:'total within-corpus citations',
+    h_index:'h-index',n_publications:'publications',citations_per_publication:'citations per publication'}[k];
+  // coverage, stated rather than implied
+  const withAu=rows.filter(d=>Array.isArray(d.author_ids)&&d.author_ids.length).length;
+  const withJn=rows.filter(d=>(d.journal||'').trim()).length;
+  const cov=isA
+    ? (hasAuthorLists()
+        ? `Built from full author lists on <b>${fmt(withAu)}</b> of <b>${fmt(rows.length)}</b> filtered articles. Articles without an author list (Crossref-recovered or unresolved) contribute nothing, which understates anyone publishing there.`
+        : `<b>Full author lists are not present in this dataset.</b> Falling back to first author only, so these are the most influential <i>first</i> authors. Re-run 03_citation_network.R and rebuild data.json with build_app_data.R to get every co-author.`)
+    : `Built from the journal name on <b>${fmt(withJn)}</b> of <b>${fmt(rows.length)}</b> filtered articles. Names are grouped case- and spacing-insensitively; an abbreviated and a full journal title are not merged.`;
+  const kpi=[[isA?'Distinct authors':'Distinct journals',fmt(t.length)],
+    ['Articles in view',fmt(rows.length)],
+    ['Top '+label+' (by '+RANKLAB+')',t.length?esc(t[0].name):'–'],
+    ['Highest h-index',t.length?fmt(Math.max(...t.map(r=>r.h_index))):'0']];
+  const bars=t.slice(0,15).map(r=>({lab:r.name,val:r[k]}));
+  const cols=[{k:'name',h:isA?'Author':'Journal'},
+    {k:'n_publications',h:'Publications',num:1},
+    {k:'total_global_citations',h:'Global citations',num:1},
+    {k:'total_within_citations',h:'Within-corpus citations',num:1},
+    {k:'h_index',h:'h-index',num:1},
+    {k:'h_index_within',h:'h-index (within)',num:1},
+    {k:'citations_per_publication',h:'Citations / publication',num:1}];
+  return `<div class="kpis">${kpi.map(x=>`<div class="kpi"><div class="v">${x[1]}</div><div class="l">${esc(x[0])}</div></div>`).join('')}</div>
+    <div class="card"><p class="muted" style="margin:0">${cov}</p></div>
+    <div class="card"><h3>Top 15 ${label}s by ${RANKLAB}</h3>${bars.length?barChart(bars):`<p class="muted" style="margin:0">No ${label}s have ≥ ${peopleState.minPubs} publication(s) in the current view — lower “Minimum publications” to bring the ranking back.</p>`}</div>
+    <div class="card"><h3>All ${label}s (sortable)</h3>
+      <p class="muted" style="margin-top:0">h-index is computed over the global citation counts of the ${label}'s articles <i>in this corpus</i>, so it is a corpus h-index and is lower than a career h-index. “h-index (within)” uses within-corpus citations instead.</p>
+      ${sortableTable('people_'+peopleState.entity,cols,t)}</div>`;}
+
+// ---------- shell: three independent top-level sections ----------
 function renderTopTabs(){document.querySelectorAll('.ttab').forEach(b=>b.classList.toggle('active',b.dataset.tab===topTab));}
 function renderSidebar(){
   const side=$('#side');
@@ -333,6 +442,9 @@ function renderSidebar(){
     side.innerHTML=`<h2>Views</h2><div class="nav" id="nav">${VIEWS.map(v=>`<a data-v="${v.id}" class="${v.id===current?'active':''}">${v.name}</a>`).join('')}</div>`+filtersBlock('sf',sf);
     document.querySelectorAll('#nav a').forEach(a=>a.onclick=()=>{current=a.dataset.v;renderSidebar();renderMain();});
     wireFilters('sf',sf,()=>{state.page={};renderMain();});
+  }else if(topTab==='people'){
+    side.innerHTML=peopleControls()+filtersBlock('pf',pf);
+    wirePeopleControls();wireFilters('pf',pf,()=>{state.page={};renderMain();});
   }else{
     side.innerHTML=graphControlsBlock()+filtersBlock('gf',gf);
     wireGraphControls();wireFilters('gf',gf,()=>{buildGraph();});
@@ -345,6 +457,10 @@ function renderMain(){
     $('#reccount').textContent=fmt(rows.length)+' of '+fmt(DATA.length)+' records';
     const v=VIEWS.find(x=>x.id===current);
     main.innerHTML=`<div class="view active" id="${v.id}"><h2>${v.name}</h2><p class="sub">Cluster Summaries — controlled by the filters on the left (independent of the Network map).</p>${v.render(rows)}</div>`;
+  }else if(topTab==='people'){
+    const rows=filterRows(pf);
+    $('#reccount').textContent=fmt(rows.length)+' of '+fmt(DATA.length)+' records (authors & journals)';
+    main.innerHTML=`<div class="view active" id="people"><h2>Authors &amp; Journals</h2><p class="sub">Who is influential in this literature, as distinct from which articles are — with its own filters on the left, independent of the other two sections.</p>${peopleMain()}</div>`;
   }else{
     main.innerHTML=`<div class="view active" id="network"><h2>Network / cluster map</h2><p class="sub">Interactive graph with its own filters and controls on the left — fully independent of Cluster Summaries. Node size = citations.</p>${graphMainHTML()}</div>`;
     buildGraph();
